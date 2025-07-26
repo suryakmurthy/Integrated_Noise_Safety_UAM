@@ -16,14 +16,14 @@ You should have received a copy of the GNU General Public License along with thi
 
 ### 1. Install project dependencies
 
-1. Navigate to the `ULI_noise_aware_agent` directory:
+1. Navigate to the `Integrated_Noise_Safety` directory:
     ```bash
-    cd ULI_noise_aware_agent
+    cd Integrated_Noise_Safety
     ```
 
 2. Install BlueSky:
     ```bash
-    pip install -e .
+    pip install -r requirements.txt
     ```
 
 For more information on the BlueSky simulator, please see: [BlueSky GitHub](https://github.com/TUDelft-CNS-ATM/bluesky)
