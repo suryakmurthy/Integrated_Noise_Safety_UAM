@@ -1,0 +1,40 @@
+% This file was created with tikzplotlib v0.10.1.
+\begin{tikzpicture}
+
+\definecolor{darkslategray38}{RGB}{38,38,38}
+\definecolor{lavender234234242}{RGB}{234,234,242}
+\definecolor{steelblue76114176}{RGB}{76,114,176}
+
+\begin{axis}[
+axis background/.style={fill=lavender234234242},
+axis line style={white},
+tick align=outside,
+title={Tradeoff Between Noise and Energy},
+x grid style={white},
+xlabel=\textcolor{darkslategray38}{Average Altitude Level},
+xmajorgrids,
+xmajorticks=false,
+xmin=-0.199378676470588, xmax=4.20151102941177,
+xtick style={color=darkslategray38},
+y grid style={white},
+ylabel=\textcolor{darkslategray38}{Average Noise Increase},
+ymajorgrids,
+ymajorticks=false,
+ymin=20.4190729579603, ymax=27.2081842470298,
+ytick style={color=darkslategray38}
+]
+\addplot [semithick, steelblue76114176, mark=*, mark size=3, mark options={solid}]
+table {%
+0.000661764705882353 26.8995882793448
+0.00110294117647059 26.8995123090261
+0.0265441176470588 26.8959457867238
+2.02941176470588 23.0338842837022
+2.07419117647059 23.0374524528488
+2.93242647058824 22.1955750501913
+4 20.746784072
+4.00147058823529 20.7276689256453
+4.00014705882353 20.7472194366616
+};
+\end{axis}
+
+\end{tikzpicture}

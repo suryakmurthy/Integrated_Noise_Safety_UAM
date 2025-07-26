@@ -1,0 +1,113 @@
+% This file was created with tikzplotlib v0.10.1.
+\begin{tikzpicture}
+
+\definecolor{darkslategray38}{RGB}{38,38,38}
+\definecolor{lavender234234242}{RGB}{234,234,242}
+\definecolor{steelblue76114176}{RGB}{76,114,176}
+
+\begin{axis}[
+axis background/.style={fill=lavender234234242},
+axis line style={white},
+tick align=outside,
+x grid style={white},
+xlabel=\textcolor{darkslategray38}{Average Noise Increase},
+xmajorgrids,
+xmajorticks=false,
+xmin=0.142948097731906, xmax=0.849135757194917,
+xtick style={color=darkslategray38},
+y grid style={white},
+ylabel=\textcolor{darkslategray38}{Average LOS events},
+ymajorgrids,
+ymajorticks=false,
+ymin=-1.41708654632227, ymax=29.400813645063,
+ytick style={color=darkslategray38}
+]
+\path [draw=blue, thick]
+(axis cs:0.175047536798406,-0.0162729012593024)
+--(axis cs:0.175047536798406,3.7362729012593);
+
+\path [draw=blue, thick]
+(axis cs:0.679689499840395,0.679705898252911)
+--(axis cs:0.679689499840395,6.12029410174709);
+
+\path [draw=blue, thick]
+(axis cs:0.714135334355888,2.20869708473654)
+--(axis cs:0.714135334355888,6.43130291526346);
+
+\path [draw=blue, thick]
+(axis cs:0.755315592489702,11.9857433218389)
+--(axis cs:0.755315592489702,19.0142566781611);
+
+\path [draw=blue, thick]
+(axis cs:0.816878479848802,28)
+--(axis cs:0.816878479848802,28);
+
+\path [draw=blue, thick]
+(axis cs:0.816847320835674,28)
+--(axis cs:0.816847320835674,28);
+
+\path [draw=blue, thick]
+(axis cs:0.816872861010369,28)
+--(axis cs:0.816872861010369,28);
+
+\path [draw=blue, thick]
+(axis cs:0.816982172958063,28)
+--(axis cs:0.816982172958063,28);
+
+\path [draw=blue, thick]
+(axis cs:0.816781427184962,28)
+--(axis cs:0.816781427184962,28);
+
+\path [draw=blue, thick]
+(axis cs:0.81698574858252,28)
+--(axis cs:0.81698574858252,28);
+
+\path [draw=blue, thick]
+(axis cs:0.817036318128416,28)
+--(axis cs:0.817036318128416,28);
+
+\addplot [semithick, blue, mark=-, mark size=5, mark options={solid}, only marks]
+table {%
+0.175047536798406 -0.0162729012593024
+0.679689499840395 0.679705898252911
+0.714135334355888 2.20869708473654
+0.755315592489702 11.9857433218389
+0.816878479848802 28
+0.816847320835674 28
+0.816872861010369 28
+0.816982172958063 28
+0.816781427184962 28
+0.81698574858252 28
+0.817036318128416 28
+};
+\addplot [semithick, blue, mark=-, mark size=5, mark options={solid}, only marks]
+table {%
+0.175047536798406 3.7362729012593
+0.679689499840395 6.12029410174709
+0.714135334355888 6.43130291526346
+0.755315592489702 19.0142566781611
+0.816878479848802 28
+0.816847320835674 28
+0.816872861010369 28
+0.816982172958063 28
+0.816781427184962 28
+0.81698574858252 28
+0.817036318128416 28
+};
+\addplot [semithick, steelblue76114176, mark=*, mark size=3, mark options={solid}]
+table {%
+0.175047536798406 1.86
+0.679689499840395 3.4
+0.714135334355888 4.32
+0.755315592489702 15.5
+0.816878479848802 28
+0.816847320835674 28
+0.816872861010369 28
+0.816982172958063 28
+0.816781427184962 28
+0.81698574858252 28
+0.817036318128416 28
+};
+\end{axis}
+
+\end{tikzpicture}

@@ -1,0 +1,2 @@
+[console_scripts]
+bluesky = bluesky.__main__:main

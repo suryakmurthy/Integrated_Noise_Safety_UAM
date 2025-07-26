@@ -1,0 +1,31 @@
+name: sws
+channels:
+  - conda-forge
+  - anaconda
+dependencies:
+  - python=3.8
+  - tensorflow
+  - shapely=1.8.4
+  - pyopengl
+  - numba
+  - pyqt
+  - pyproj
+  - scikit-learn
+  - jupyter
+  - seaborn
+  - psycopg2
+  - plotly
+  - pip
+  - pip:
+    - scipy
+    - matplotlib
+    - pandas
+    - pyopengl
+    - pyopengl-accelerate
+    - msgpack
+    - zmq
+    - pygame
+    - gin-config
+    - gym
+    - utm
+    - rtree

@@ -1,0 +1,62 @@
+## Configuration file for training D2MAV-A Model
+#  ---------------------------------------------------------------
+
+## ** Driver parameters **
+#  -----------------
+Driver.run_name = 'train_D2MAV_full_results' ## defines the directory name for saving models and results (ex. models/<run_name>/model.h5)
+Driver.run_type = 'train' # 'train' or 'eval'
+Driver.iterations= 10000
+Driver.num_workers = 5 # of parallel runners
+Driver.scenario_file = 'scenarios/generated_scenarios/austin_env_full_ver_4.scn' # default for final demo; or use scenarios/train
+Driver.config_file = 'settings.cfg' #should not need to modify
+Driver.gui = False # Gui on or off
+
+## For Eval with traffic manager (make sure to comment out one set)
+Driver.weights_file = None #'models/train_D2MAV_noise_only/best_model.h5' # used for evaluation
+Driver.traffic_manager_active = True
+
+
+## Simulation parameters
+Driver.max_steps = 32 ## How many transitions to collect in the environment
+Driver.simdt = 4 # seconds
+Driver.speeds = [5,0,60] ## change to [156, 0, 346] for commercial | [0,0,84] for UAM
+
+## Distance values for Loss of separation, exiting the environment, and intruder detection.
+Driver.LOS = 150 # 10 meters from intruder, change to 3 (nm) for commercial
+Driver.dGoal = 500 # 100 meters from goal, change to 5 (nm) for commercial
+Driver.intruderThreshold = 2500 #  meters distance to consider intruders in ownship state, change to 50 (nm) for commercial
+
+
+## Reward Parameters used in Previous D2MAV-A Implementations - Not used in current code
+Driver.altChangePenalty = 0.05
+Driver.stepPenalty = 0
+Driver.clearancePenalty = 0.001
+
+## Weighting factor for different reward components
+Driver.weighting_factor_noise = [1.0, 0.0, 0.0]
+Driver.weighting_factor_energy = [0.0, 1.0, 0.0]
+Driver.weighting_factor_separation = [0.0, 0.0, 1.0]
+
+Driver.min_alt = 1000 # feet
+Driver.max_alt = 3000 # feet
+Driver.alt_level_separation = 500 # feet
+## Non-cooperative 
+Driver.non_coop_tag = 0 # 0 means all are coorperative. 1 means Loss of Control (maintain same speed). 2 means Loss of Communication (Other aircraft cannot see it)
+
+
+#  ---------------------------------------------------------------
+
+## ** Agent parameters (The agent here is the D2MAV-A agent which learns the policy) **
+Agent.max_agents = 50
+Agent.batch_size = 512 # [128,128,512,512]
+Agent.epochs = 6
+Agent.entropy_beta = 1e-2 #[1e-3, 1e-3, 1e-5, 1e-5]
+Agent.learning_rate = 1e-5 # [1e-5, 1e-4, 1e-4, 1e-4]
+Agent.clip_loss = 0.4 #[0.4, 0.4,0.2,0.1]
+Agent.action_predict = False
+Agent.nodes = 256
+Agent.num_models = 1
+Agent.loss_weights = [1.0,0.01] #[0.1, 0.1,1.0, 0.5]
+Agent.equipped = True #whether or not the agent is equipped with the separation assurance logic
+
+#  ---------------------------------------------------------------
