@@ -1,5 +1,6 @@
 import ray
 import os
+import glob
 import gin
 import argparse
 from D2MAV_A.agent import Agent
@@ -33,6 +34,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--cluster", action="store_true")
 parser.add_argument("--learn_action", action="store_true")
 parser.add_argument("--debug", action="store_true")
+parser.add_argument("--config", type=str, default="conf/config_test.gin", help="Path to the gin config file to use")
 
 args = parser.parse_args()
 
@@ -68,6 +70,12 @@ class Driver:
         run_type="train",
         traffic_manager_active=True,
         n_waypoints=2,
+        deterministic_sweep=False,  # if True, evaluate() runs every .scn file in
+                                     # scenario_file exactly once (deterministic,
+                                     # no repeats/gaps) instead of the default
+                                     # random-draw-per-iteration behavior --
+                                     # needed for a paired comparison against
+                                     # another method run the same way
     ):
         self.cluster = cluster
         self.run_name = run_name
@@ -77,6 +85,7 @@ class Driver:
         self.iterations = iterations
         self.max_steps = max_steps
         self.speeds = speeds
+        self.deterministic_sweep = deterministic_sweep
 
         self.alt_level_separation = alt_level_separation
         self.max_alt = max_alt
@@ -385,6 +394,144 @@ class Driver:
             else:
                 weights = []
 
+            def extract_metrics(data, scenario_num, scenario_path=None):
+                """Shared between sweep mode and the original random-iteration
+                mode so both save identically-structured entries."""
+                avg_noise_increase = data['avg_noise_increase']  # RAW: route_id -> [individual per-step samples]
+                avg_noise_means = {id_: float(np.mean(vals)) for id_, vals in avg_noise_increase.items()}  # quick reference only
+                full_travel = data.get('full_travel', {})
+                airborne_history = data.get('airborne_count_history', [])
+                alt_adjustment_events = data.get('alt_adjustment_events', [])
+                nmac_event_lengths = data.get('nmac_event_lengths', [])
+                metric_dict = {
+                    'scenario_num': scenario_num,
+                    'los': int(data['nmacs']),
+                    'nmac_time': float(data['nmac_time']),
+                    'nmac_event_lengths': nmac_event_lengths,  # RAW: one entry per individual NMAC streak (seconds)
+                    'max_noise': float(data['max_noise_increase']),
+                    'avg_noise_increase': avg_noise_increase,  # RAW: route_id -> [samples]
+                    'avg_noise_increase_means': avg_noise_means,  # per-route MEAN, quick reference only
+                    'congestion_distribution': data['congestion_distribution'],
+                    'num_alt_adjustments': data['num_alt_adjustments'],  # running per-aircraft count, kept for backward compat
+                    'alt_adjustment_events': alt_adjustment_events,  # RAW: flat list, one per climb event (levels)
+                    'full_alt_adjustments': data.get('full_alt_adjustments', {}),  # RAW: ac_id -> [levels per climb event]
+                    'full_travel': full_travel,  # RAW: ac_id -> travel time (seconds)
+                    'mean_travel_time': float(np.mean(list(full_travel.values()))) if full_travel else 0.0,
+                    'airborne_count_history': airborne_history,  # RAW: one entry per simulated step
+                    'mean_airborne_count': float(np.mean(airborne_history)) if airborne_history else 0.0,
+                    'max_airborne_count': int(np.max(airborne_history)) if airborne_history else 0,
+                    'total_ac': data['total_ac'],
+                }
+                if scenario_path is not None:
+                    metric_dict['scenario_file'] = scenario_path
+                return metric_dict
+
+            if self.deterministic_sweep:
+                # One full episode per .scn file in scenario_file, exactly
+                # once, no repeats/gaps -- for a paired comparison against
+                # another method run the same way (see main_baseline.py's
+                # --eval_scenario_dir on the heuristic side).
+                scenario_queue = sorted(glob.glob(os.path.join(self.scenario_file, "*.scn")))
+                print(f"Sweeping {len(scenario_queue)} scenarios from {self.scenario_file}")
+
+                worker_ids = list(workers.keys())
+                worker_current_scenario = {}
+                in_flight = {}  # ray future -> worker_id
+                for worker_id in worker_ids:
+                    if not scenario_queue:
+                        break
+                    path = scenario_queue.pop(0)
+                    worker_current_scenario[worker_id] = path
+                    in_flight[workers[worker_id].run_one_iteration.remote(weights, scenario_file_override=path)] = worker_id
+
+                metric_list = []
+                completed = 0
+                total = len(in_flight) + len(scenario_queue)
+
+                while in_flight:
+                    done_id, _ = ray.wait(list(in_flight.keys()), num_returns=1)
+                    fut = done_id[0]
+                    worker_id = in_flight.pop(fut)
+                    data, _returned_worker_id = ray.get(ray.get(fut))
+                    current_path = worker_current_scenario[worker_id]
+
+                    if data["environment_done"]:
+                        metric_list.append(extract_metrics(data, completed, scenario_path=current_path))
+                        completed += 1
+                        print(f"     {completed}/{total} scenarios complete ({self.run_name})     ")
+                        print(f"| {current_path}: LOS={data['nmacs']} max_noise={data['max_noise_increase']:.2f} "
+                              f"mean_travel={metric_list[-1]['mean_travel_time']:.1f} "
+                              f"mean_airborne={metric_list[-1]['mean_airborne_count']:.1f} |")
+
+                        if scenario_queue:
+                            next_path = scenario_queue.pop(0)
+                            worker_current_scenario[worker_id] = next_path
+                            in_flight[workers[worker_id].run_one_iteration.remote(weights, scenario_file_override=next_path)] = worker_id
+                    else:
+                        # Episode not finished this chunk -- keep going on
+                        # the SAME scenario (the override is only actually
+                        # used by reset(), which won't fire again until
+                        # this episode's episode_done becomes True).
+                        in_flight[workers[worker_id].run_one_iteration.remote(weights, scenario_file_override=current_path)] = worker_id
+
+                folder_path = f'log/generalization_test/{self.run_name}'
+                if not os.path.exists(folder_path):
+                    os.makedirs(folder_path)
+                with open(f'{folder_path}/sweep_results.json', 'w') as file:
+                    json.dump(metric_list, file, indent=4)
+                print(f"Saved {len(metric_list)} scenario results to {folder_path}/sweep_results.json")
+
+                # Properly pooled aggregate: every individual event from
+                # every scenario concatenated into one flat list per
+                # metric, then a single mean/std over the pooled data --
+                # not a mean of already-per-scenario-averaged numbers.
+                # Mirrors main_baseline.py's pooled_summary.json exactly,
+                # so the two sides are aggregated the same way.
+                pooled_travel_times = []
+                pooled_nmac_event_lengths = []
+                pooled_total_levels_climbed = []  # one value PER AIRCRAFT (summed
+                                                   # across all its climb events),
+                                                   # not per event
+                pooled_noise_samples = []
+                los_counts_per_scenario = []
+                max_noise_per_scenario = []
+
+                for entry in metric_list:
+                    pooled_travel_times.extend(list(entry.get('full_travel', {}).values()))
+                    pooled_nmac_event_lengths.extend(entry.get('nmac_event_lengths', []))
+                    for ac_climb_events in entry.get('full_alt_adjustments', {}).values():
+                        pooled_total_levels_climbed.append(sum(ac_climb_events))  # 0.0 for aircraft that never climbed
+                    for route_samples in entry.get('avg_noise_increase', {}).values():
+                        pooled_noise_samples.extend(route_samples)
+                    los_counts_per_scenario.append(entry.get('los', 0))
+                    max_noise_per_scenario.append(entry.get('max_noise', 0.0))
+
+                def mean_std(values):
+                    if not values:
+                        return {"mean": 0.0, "std": 0.0, "n": 0}
+                    arr = np.array(values, dtype=float)
+                    return {"mean": float(np.mean(arr)), "std": float(np.std(arr)), "n": int(len(arr))}
+
+                pooled_summary = {
+                    "run_name": self.run_name,
+                    "n_scenarios": len(metric_list),
+                    "los_events_per_scenario": mean_std(los_counts_per_scenario),
+                    "total_los_events": int(np.sum(los_counts_per_scenario)),
+                    "max_noise_increase_db": {"max_over_scenarios": float(np.max(max_noise_per_scenario)) if max_noise_per_scenario else 0.0},
+                    "noise_increase_db": mean_std(pooled_noise_samples),
+                    "travel_time_s": mean_std(pooled_travel_times),
+                    "midair_halting_time_s": {"mean": 0.0, "std": 0.0, "n": 0},  # structural -- no speed-control action
+                    "total_levels_climbed_per_aircraft": mean_std(pooled_total_levels_climbed),
+                    "nmac_event_length_s": mean_std(pooled_nmac_event_lengths),
+                }
+
+                with open(f'{folder_path}/pooled_summary.json', 'w') as file:
+                    json.dump(pooled_summary, file, indent=4)
+                print(f"Saved pooled (not mean-of-means) summary to {folder_path}/pooled_summary.json")
+                print(json.dumps(pooled_summary, indent=2))
+
+                continue  # next weights file, skip the original iteration loop below
+
             runner_sims = [
                 workers[agent_id].run_one_iteration.remote(weights)
                 for agent_id in workers.keys()
@@ -453,17 +600,16 @@ class Driver:
                 ]
             
                 # === MODIFIED: Store Metrics to a Separate Log ===
-                folder_path = 'log/test_models_full_results'
+                folder_path = 'log/generalization_test/test_models_full_results_1_holdout'
                 if not os.path.exists(folder_path):
                     os.makedirs(folder_path)
-                with open('log/test_models_full_results/{}.json'.format(second_to_last), 'w') as file:
+                with open('log/generalization_test/test_models_full_results_1_holdout/{}.json'.format(second_to_last), 'w') as file:
                     json.dump(metric_list, file, indent=4)
                 # === END OF MODIFIED SEGMENT ===
 
 
 ### Main code execution
-### IMPORTANT NOTE: You need to adjust the following config file whether you are training or testing
-gin.parse_config_file("conf/config_test.gin")
+gin.parse_config_file(args.config)
 
 if args.cluster:
     ## Initialize Ray

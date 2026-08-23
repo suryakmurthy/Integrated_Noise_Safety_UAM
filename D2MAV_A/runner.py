@@ -151,6 +151,7 @@ class Runner(object):
         self.agents = {}
         self.agent = agent
         self.scen_file = scenario_file
+        print(self.scen_file)
         self.working_directory = working_directory
         self.speeds = np.array(speeds)
         self.altitudes = np.array([-alt_level_separation,0,alt_level_separation])
@@ -303,9 +304,14 @@ class Runner(object):
         ) 
         self.exiting_vehicles = []
 
-    def reset(self):
+    def reset(self, scenario_file_override=None):
         """
         Beginning of the episode. In this function, all variables need to be reset to default.
+        scenario_file_override, if given, is used exactly as-is (a specific
+        .scn path) instead of the usual random draw from self.scen_file's
+        directory -- lets a caller deterministically sweep every scenario
+        in a set exactly once, for a paired comparison against another
+        method run the same way.
         """
         print("Resetting")
         self.agent.reset()
@@ -330,15 +336,30 @@ class Runner(object):
         self.full_travel = {}
         self.full_halting_times = {}
         self.travel_start = {}
+        self.alt_adjustment_events = []  # flat list of individual climb events, RAW --
+                                          # every discrete climb action in this system
+                                          # traverses exactly one level (self.altitudes =
+                                          # [-sep, 0, +sep]), so each qualifying event
+                                          # contributes exactly 1.0. Separate from
+                                          # self.alt_adjustments (a running per-aircraft
+                                          # count), which is left untouched since it
+                                          # feeds the live energy reward computation.
+        self.full_alt_adjustments = {}  # ac_id -> [1.0, ...] per climb event
+        self.nmac_event_lengths = []  # flat list of individual NMAC streak durations (seconds)
+        self.airborne_count_history = []  # per-step count of aircraft that
+                                           # have been released to fly (not
+                                           # still held on the ground) and
+                                           # haven't reached their goal yet
 
-        # randomly sample
-        if ".scn" not in self.scen_file:
+        if scenario_file_override is not None:
+            scenario_file = scenario_file_override
+        elif ".scn" not in self.scen_file:
             scenario_files = glob.glob(f"{self.scen_file}" + "/*.scn")
             scenario_file = np.random.choice(scenario_files, 1)[0]
 
         else:
             scenario_file = self.scen_file
-
+        print(scenario_file)
         # Reset Traffic Manager
         self.create_traffic_manager()  # easier to just create a new one for now
 
@@ -381,7 +402,7 @@ class Runner(object):
         self.bs.sim.step()
         after = self.bs.sim.simt
         if (after - before) == 0:
-            return self.reset()
+            return self.reset(scenario_file_override=scenario_file_override)
 
         assert (after - before) == self.simdt
 
@@ -435,6 +456,7 @@ class Runner(object):
                     self.travel_start[id_] = self.bs.sim.simt
                     self.full_halting_times[id_] = []
                     self.alt_adjustments[id_] = 0
+                    self.full_alt_adjustments[id_] = []  # raw per-event list (see below)
                     self.wait_time[id_] = 0
                 else:
                     self.vehicle_helpers[id_].enter_request_status = False
@@ -459,7 +481,14 @@ class Runner(object):
         """
 
         collected_responses = {}
-    
+
+        # Aircraft that have been released to fly (travel_start recorded)
+        # and still exist in the sim (haven't reached goal/been deleted
+        # yet). Intersecting rather than just len(traf.id) excludes
+        # aircraft still held on the ground awaiting takeoff clearance.
+        airborne_now = len(set(self.bs.traf.id) & set(self.travel_start.keys()))
+        self.airborne_count_history.append(airborne_now)
+
         coord_transform = self.transformer.transform(self.bs.traf.lon, self.bs.traf.lat)
 
 
@@ -826,6 +855,7 @@ class Runner(object):
                     self.travel_start[id_] = self.bs.sim.simt
                     self.full_halting_times[id_] = []
                     self.alt_adjustments[id_] = 0
+                    self.full_alt_adjustments[id_] = []  # raw per-event list (see below)
                     self.wait_time[id_] = 0
                 else:
                     self.vehicle_helpers[id_].enter_request_status = False
@@ -845,6 +875,7 @@ class Runner(object):
                     self.travel_start[id_] = self.bs.sim.simt
                     self.full_halting_times[id_] = []
                     self.alt_adjustments[id_] = 0
+                    self.full_alt_adjustments[id_] = []  # raw per-event list (see below)
                     self.wait_time[id_] = 0
                 else:
                     self.vehicle_helpers[id_].enter_request_status = False
@@ -1149,6 +1180,13 @@ class Runner(object):
                         ].accepted.remove(id_)
                         self.traffic_manager.intersections[intersection].set_volume()
                 done[id_] = True
+                # self.full_travel was previously initialized in reset()
+                # but never actually populated anywhere -- compute it here,
+                # at the moment of goal arrival, for both GA and regular
+                # cooperative aircraft (this fires before the GA-specific
+                # branch below, so it covers both).
+                if id_ in self.travel_start and id_ not in self.full_travel:
+                    self.full_travel[id_] = self.bs.sim.simt - self.travel_start[id_]
 
             # is this a GA aircraft?
             if id_[0:2] == "GA":
@@ -1238,6 +1276,8 @@ class Runner(object):
                     if self.vehicle_helpers[id_].current_route_section != None and self.vehicle_helpers[id_j].current_route_section != None:
                         if self.vehicle_helpers[id_j].route.route_id[0:3] != self.vehicle_helpers[id_].route.route_id[0:3]:
                             if self.bs.traf.gs[i] != 0 and self.bs.traf.gs[index] != 0:
+                                # print(f"LOS has occured between {id_}, {id_j}")
+                                # time.sleep(30)
                                 info[id_] = 1
                                 if id_ in a:
                                     self.acInfo[id_]["NMAC"][-1] = 1
@@ -1424,13 +1464,20 @@ class Runner(object):
                         if action_taken == 2 and alt_own_ft >= 1000 and alt_own_ft <= 3000: # or action_taken == 0:
                             self.alt_adjustments[id_] += 1
                             energy_reward = self.fixed_energy_cost * self.alt_adjustments[id_]
+                            # Raw per-event tracking for reporting, separate
+                            # from the reward computation above (untouched).
+                            # Climbs only (this branch already excludes
+                            # descend/hold), one level per qualifying event
+                            # by construction -- see self.altitudes.
+                            self.alt_adjustment_events.append(1.0)
+                            self.full_alt_adjustments.setdefault(id_, []).append(1.0)
                         
                         rew[id_] += self.weighting_factor_energy * energy_reward
         # === END OF MODIFIED SEGEMENT === 
 
         return state, rew, done, info
 
-    def run_one_iteration(self, weights):
+    def run_one_iteration(self, weights, scenario_file_override=None):
         """
         2022/11/1 modify the policy implementation and introduce the non-cooperative behaviors
         """
@@ -1441,7 +1488,7 @@ class Runner(object):
         self.step_counter = 0
 
         if self.episode_done:
-            obs = self.reset()
+            obs = self.reset(scenario_file_override=scenario_file_override)
             self.nmacs = 0
             self.nmac_time = 0
             self.total_ac = 0
@@ -1499,7 +1546,13 @@ class Runner(object):
                 self.agent.data["environment_done"] = self.episode_done
 
                 # Add this in
-                self.agent.data["num_alt_adjustments"] =  self.alt_adjustments
+                self.agent.data["num_alt_adjustments"] =  self.alt_adjustments  # running count -- kept for backward compat
+
+                self.agent.data["full_travel"] = self.full_travel  # ac_id -> flight time (seconds)
+                self.agent.data["airborne_count_history"] = self.airborne_count_history
+                self.agent.data["alt_adjustment_events"] = self.alt_adjustment_events  # RAW: flat list, one per climb event (levels)
+                self.agent.data["full_alt_adjustments"] = self.full_alt_adjustments    # RAW: ac_id -> [levels per climb event]
+                self.agent.data["nmac_event_lengths"] = self.nmac_event_lengths        # RAW: one entry per individual NMAC streak (seconds)
 
                 data_ID = ray.put([self.agent.data, self.id])
                 return data_ID
@@ -1517,13 +1570,22 @@ class Runner(object):
                 # did an NMAC occur
                 if 1 in self.acInfo[ac_id]["NMAC"]:
                     # if term_type[ac_id] == 1:
-                    group = groupby(self.acInfo[ac_id]["NMAC"])
-                    group = np.array([x[0] for x in group])
+                    # Materialize each sub-group immediately -- groupby's
+                    # sub-iterators are invalidated once the outer iterator
+                    # advances, so key-extraction and length-extraction
+                    # can't be two separate passes over the same groupby object.
+                    nmac_groups = [(key, list(g)) for key, g in groupby(self.acInfo[ac_id]["NMAC"])]
+                    group = np.array([key for key, _ in nmac_groups])
 
                     self.nmac_time += (
                         sum(self.acInfo[ac_id]["NMAC"]) * self.bs.sim.simdt
                     )
                     self.nmacs += sum(group)
+                    # Raw per-event streak lengths (seconds), separate from
+                    # the scenario-level sum/count above.
+                    for key, group_list in nmac_groups:
+                        if key == 1:
+                            self.nmac_event_lengths.append(len(group_list) * self.bs.sim.simdt)
                 self.bs.stack.stack("DEL {}".format(ac_id))
                 del obs_updated[ac_id]
 
