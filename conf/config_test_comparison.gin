@@ -1,0 +1,67 @@
+## Configuration for the round_robin-vs-RL comparison experiment.
+## Runs the trained noise/LOS-aware policy across all 20 scenarios in
+## scenarios/generated_scenarios/all_scenarios exactly once each
+## (deterministic_sweep=True), matching how the round_robin heuristic
+## baseline was swept via main_baseline.py --eval_scenario_dir.
+#  ---------------------------------------------------------------
+
+## ** Driver parameters **
+#  -----------------
+Driver.run_name = 'comparison_noise_00_energy_005_separation_095'  ## also used as the results subfolder name
+Driver.run_type = 'eval' # 'train' or 'eval'
+Driver.deterministic_sweep = True  ## sweep every .scn file in scenario_file exactly once, instead of random draws
+Driver.iterations = 3500  ## upper bound on run_one_iteration calls per scenario -- not a hard episode cap,
+                           ## see max_steps below; effectively unused as a limit under deterministic_sweep,
+                           ## since the sweep loop advances scenario-by-scenario, not iteration-by-iteration
+Driver.num_workers = 8 # of parallel runners
+Driver.scenario_file = 'scenarios/generated_scenarios/all_scenarios'
+Driver.config_file = 'settings.cfg' #should not need to modify
+Driver.gui = False # batch eval -- no GUI
+
+## List of policy weights to load from. One entry = one full 20-scenario sweep.
+Driver.weights_file = ['models/train_D2MAV_full_results/noise_005_energy_00_separation_095/best_model.h5']
+Driver.traffic_manager_active = True
+
+
+## Case Study parameters
+Driver.max_steps = 32 ## How many transitions to collect PER run_one_iteration CALL, not the
+                       ## episode length -- the episode itself runs until term["__all__"] or
+                       ## Driver.iterations calls are exhausted (see runner.py's run_one_iteration).
+                       ## Left unchanged from the original config; this is not the same kind of
+                       ## parameter as the heuristic baseline's --max_steps.
+Driver.simdt = 4 # seconds
+Driver.speeds = [5,0,60] ## change to [156, 0, 346] for commercial | [0,0,84] for UAM
+
+## Distance values for Loss of separation, exiting the environment, and intruder detection.
+Driver.LOS = 150 # meters from intruder
+Driver.dGoal = 500 # meters from goal
+Driver.intruderThreshold = 2500 #  meters distance to consider intruders in ownship state
+
+## Reward Parameters used in Previous D2MAV-A Implementations - Not used in current code
+Driver.altChangePenalty = 0
+Driver.stepPenalty = 0
+Driver.clearancePenalty = 0.001
+
+Driver.min_alt = 1000 # feet
+Driver.max_alt = 3000 # feet
+Driver.alt_level_separation = 500 # feet
+## Non-cooperative
+Driver.non_coop_tag = 0 # 0 means all are cooperative
+
+#  ---------------------------------------------------------------
+
+## ** Agent parameters ** (unchanged from config_test.gin -- must match the
+## architecture the checkpoint was trained with)
+Agent.max_agents = 50
+Agent.batch_size = 512
+Agent.epochs = 6
+Agent.entropy_beta = 1e-2
+Agent.learning_rate = 1e-5
+Agent.clip_loss = 0.4
+Agent.action_predict = False
+Agent.nodes = 256
+Agent.num_models = 1
+Agent.loss_weights = [1.0,0.01]
+Agent.equipped = True
+
+#  --------------------------------------------------------------
